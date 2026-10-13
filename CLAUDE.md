@@ -20,7 +20,9 @@ The user picks how far from their comfort zone to go:
 - **Bridge**: new experiences connected to their taste
 - **Adventure**: distinctly local experiences (loved in this city specifically) that still fit their taste
 
-Exact logic depends on which scores Qloo returns (affinity, popularity). Decide in Phase 2 by inspecting real responses. Do not guess the response shape; ask me to paste a real response first.
+**Implemented in `DIALS` (app/qloo.py), tuned on live Berlin, Tokyo, Toronto and Chennai data:** the dial is a popularity band (0-1 percentile). Comfort = popularity >= 0.85; Bridge = 0.5 to 0.85; Adventure = <= 0.5 plus signal.location.weight=high. In all four cities the three bands share zero places, and affinity stays about the same (0.67-0.87), so going further out does not make the taste match worse. Place types are limited by `DEFAULT_PLACE_TAGS` (restaurant, museum, park, live music venue).
+
+Known limits (be honest about these in the UI and README): Qloo "place" data is loose, so Adventure can still include odd picks (a gym, a hotel, repeated chain names like Tim Hortons). Never hide or invent results to cover this; de-duplicate by name and let the explanation say what Qloo actually returned.
 
 ## Architecture
 
@@ -63,17 +65,29 @@ taste-passport/
     index.html
     style.css
     app.js
+  tests/
+    test_main.py
+    test_qloo.py
 ```
 
 ## Build phases (work one at a time, commit after each works)
 
-0. Setup: repo, MIT license, this file, `.env.example`, keys
-1. Walking skeleton: "Hello Taste Passport" page served by FastAPI, deployed live
-2. Qloo tools: `search_entities`, `find_places(city, taste, dial)`, `find_local_culture`
+0. Setup: repo, MIT license, this file, `.env.example`, keys (DONE)
+1. Walking skeleton: "Hello Taste Passport" page served by FastAPI, deployed live (DONE)
+2. Qloo tools: `search_entities`, `find_places(city, entity_ids, dial, tags)`, `find_local_culture(city, entity_ids, culture_type)` (DONE; see "Confirmed from live data")
 3. Agent loop + Adventure Dial logic + grounding checks
 4. Real website: input form, dial slider, result cards, map, loading and error states, mobile layout
 5. Hardening: cache Qloo responses, timeouts, retries, friendly fallbacks, cold-start message
 6. Final deploy, README with run instructions, project description
+
+## Chosen features (backlog, built inside the phases above)
+
+All four use data already confirmed in "Confirmed from live data". Do not add other features until these work.
+
+1. **"Why this fits you" bars (Phase 3 data, Phase 4 UI).** Each card shows how much each favourite contributed, e.g. "60% Interstellar, 40% A.R. Rahman", taken from `contributions` (Qloo explainability scores). The LLM may only describe these numbers, never invent them. If a result has no contributions, say so.
+2. **Map with dial-coloured pins (Phase 4).** Leaflet + OpenStreetMap, using lat/lon from `find_places`. Pin colour = which dial setting (Comfort, Bridge, Adventure) the place came from. Places without lat/lon are listed but not pinned.
+3. **Three-column dial view (Phase 4).** Comfort, Bridge and Adventure shown side by side for the same city and taste, so the difference is visible. Costs 3 Qloo calls per search, so cache them (Phase 5).
+4. **Group Passport (Phase 3 logic, Phase 4 UI).** Two or more people each enter favourites; combine all their entity IDs into one taste list. For each place, show the per-person split from `contributions` (map each entity ID back to the person who entered it). Before claiming it works, test that two very different people give results that differ from either person alone.
 
 ## Working style
 
@@ -105,4 +119,13 @@ taste-passport/
   - Tags: filter.tags and signal.interests.tags need IDs from GET /v2/tags (example: urn:tag:genre:place:restaurant:japanese).
   - Response shape: success, results.entities[] (array), results.duration.
 - The OpenAPI block on the docs page lists the production server. Ignore it and always use the hackathon base URL.
-- Still UNCONFIRMED (verify from docs or real responses before coding): the search endpoint path and params (name -> entity ID), and the exact field names inside each entity (affinity, popularity, address, coordinates, image).
+
+## Confirmed from live data (Phase 2, real responses in raw/ and live calls)
+
+- Search: GET /search?query=<name>&types=<urn:entity:type>&take=N returns results[] (a plain list, not results.entities) with name, entity_id, types (a LIST), popularity, disambiguation. Insights results use `type`/`subtype` (strings), not `types`.
+- Place fields: name, entity_id, popularity (0-1), location.lat/lon, tags[] (id, name), properties.address / description / images[].url, query.affinity, query.explainability["signal.interests.entities"] = [{entity_id, score}] (in all samples seen, the scores add up to about 1 across the inputs). Affinity is absent when there is no taste input. Lists can contain null items, so always skip empties.
+- Non-place fields (artist, brand, tv_show, podcast): same shape, but the image is properties.image.url (one dict) and there is no location, address or lat/lon.
+- filter.tags: a comma-separated list means OR; a repeated parameter returns 400; a parent tag also matches its children (restaurant includes bar, cafe, bakery).
+- **filter.location.query is silently IGNORED for artist, brand, tv_show, podcast, movie, person and book** (Berlin and Tokyo returned identical lists). Use signal.location.query instead for these; it does change the results (different brands per city, a Berlin-set show for Berlin). Only place and destination respect filter.location. Treat the results as "what Qloo ranks higher for this city and taste", never as "this artist is from this city".
+- video_game returns 400 with a location. destination returns neighbourhoods/cities (2-4 results), not venues.
+- NOT yet checked: how much results differ between two very different tastes in the same city and dial setting. Test this before claiming personalization in the UI or README (the Phase 3 grounding work should include it).

@@ -74,6 +74,25 @@ def test_place_with_null_list_entries_does_not_crash(monkeypatch):
     assert place["image"] is None and place["tags"] == []
 
 
+def test_find_local_culture_uses_signal_location_not_filter(monkeypatch):
+    seen = {}
+    artist = {"name": "Hans Zimmer", "entity_id": "ID-ARTIST",
+              "properties": {"image": {"url": "https://img/a.jpg"}, "description": "Composer."},
+              "query": {"affinity": 0.9}}
+    monkeypatch.setattr(qloo, "_get", lambda path, params: seen.update(params=params)
+                        or {"results": {"entities": [artist]}})
+    result = qloo.find_local_culture("Berlin", ["ID"], "artist")
+    assert seen["params"]["filter.type"] == "urn:entity:artist"
+    assert seen["params"]["signal.location.query"] == "Berlin"
+    assert "filter.location.query" not in seen["params"]  # silently ignored by Qloo here
+    assert result[0]["image"] == "https://img/a.jpg"
+
+
+def test_unknown_culture_type_raises_friendly_error():
+    with pytest.raises(qloo.QlooError):
+        qloo.find_local_culture("Berlin", ["ID"], "video_game")  # Qloo returns 400 for this
+
+
 def test_find_places_empty_result_is_empty_list(monkeypatch):
     monkeypatch.setattr(qloo, "_get", lambda path, params: {"results": {"entities": []}})
     assert qloo.find_places("Nowhere", ["ID"]) == []
