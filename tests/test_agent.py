@@ -161,6 +161,62 @@ def test_group_passport_tags_each_favourite_with_its_person(monkeypatch, fake_ql
     assert result["places"][0]["fits"] == [{"name": "Interstellar", "share": 0.6, "person": "Ana"}]
 
 
+def test_same_search_is_answered_from_cache_without_the_ai(monkeypatch, fake_qloo):
+    final = json.dumps({"picks": [{"entity_id": "P1", "note": "ok"}]})
+    calls = []
+
+    def llm(messages, tools):
+        calls.append(1)
+        steps = [tool_call("1", "search_entities", {"name": "Interstellar", "entity_type": "movie"}),
+                 tool_call("2", "find_places", {"city": "Berlin", "entity_ids": ["ID-MOVIE"]}),
+                 {"content": final}]
+        return steps[(len(calls) - 1) % 3]  # each search takes 3 AI calls: search, places, answer
+
+    monkeypatch.setattr(agent, "llm_call", llm)
+    first = agent.run_passport("Interstellar", "Berlin", "bridge")
+    second = agent.run_passport("  interstellar ", "berlin", "bridge")  # same search, different spelling
+    assert second == first and len(calls) == 3  # the AI ran only for the first search
+    agent.run_passport("Interstellar", "Berlin", "adventure")  # another dial is a new search
+    assert len(calls) > 3
+
+
+def test_ai_down_still_shows_qloo_results_when_favourites_are_known(monkeypatch, fake_qloo):
+    def llm(messages, tools):
+        raise agent.AgentError("The AI model is busy right now (rate limit).")
+
+    monkeypatch.setattr(agent, "llm_call", llm)
+    resolved = [{"entity_id": "ID-MOVIE", "name": "Interstellar", "type": "x", "person": None}]
+    result = agent.run_passport("", "Berlin", "bridge", resolved=resolved)
+    assert result["fallback"] is True
+    assert [p["name"] for p in result["places"]] == ["Bar One", "Bar Two"]
+    assert all(p["note"] is None for p in result["places"])
+    assert agent._result_cache == {}  # a degraded answer is never cached
+
+
+def test_ai_down_with_nothing_found_yet_raises_friendly_error(monkeypatch):
+    def llm(messages, tools):
+        raise agent.AgentError("The AI model is busy right now (rate limit).")
+
+    monkeypatch.setattr(agent, "llm_call", llm)
+    with pytest.raises(agent.AgentError, match="busy"):
+        agent.run_passport("Interstellar", "Berlin", "bridge")
+
+
+def test_ai_slot_is_freed_even_when_the_ai_fails(monkeypatch):
+    monkeypatch.setattr(agent, "llm_call", lambda m, t: (_ for _ in ()).throw(agent.AgentError("boom")))
+    for _ in range(agent.AI_SLOTS + 2):  # would hang if slots leaked
+        with pytest.raises(agent.AgentError):
+            agent.run_passport("x", "Berlin", "bridge")
+
+
+def test_groq_server_error_is_retried(monkeypatch):
+    replies = [FakeResponse(503), FakeResponse(200)]
+    calls = []
+    monkeypatch.setattr(agent.httpx, "post", lambda *a, **k: calls.append(1) or replies.pop(0))
+    assert agent._post_to_groq("m", [], [], "key").status_code == 200
+    assert len(calls) == 2
+
+
 def test_unknown_dial_rejected():
     with pytest.raises(agent.AgentError):
         agent.run_passport("x", "Berlin", "extreme")

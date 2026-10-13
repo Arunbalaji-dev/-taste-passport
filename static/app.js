@@ -176,7 +176,7 @@ async function showDial(dial) {
     }
     if (myRequest !== state.requestId) return; // a newer search replaced this one
     if (!response.ok || !data || data.error) {
-      renderError((data && data.error) || "Something went wrong on our side. Please try again in a moment.");
+      renderError((data && data.error) || "Something went wrong on our side. Please try again in a moment.", dial);
       return;
     }
     state.cache[dial] = data;
@@ -191,7 +191,8 @@ async function showDial(dial) {
     renderError(
       err.name === "AbortError"
         ? "This is taking too long. The server may be waking up, so please try again."
-        : "Could not reach the server. Check your connection and try again."
+        : "Could not reach the server. Check your connection and try again.",
+      dial
     );
   } finally {
     clearTimeout(slowTimer);
@@ -228,12 +229,16 @@ function renderLoading(dial) {
     </div>`;
 }
 
-function renderError(message) {
+function renderError(message, dial) {
   resultsBody.innerHTML = `
     <div class="message error" role="alert">
       <h2>That didn't work</h2>
       <p>${esc(message)}</p>
+      <button type="button" id="retry-btn" class="retry">Try again</button>
     </div>`;
+  $("#retry-btn").addEventListener("click", () => {
+    if (!state.busy) showDial(dial);
+  });
 }
 
 // Group the match shares by person for a Group Passport, or by favourite for a solo one.

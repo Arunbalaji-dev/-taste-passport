@@ -7,7 +7,9 @@ that did not come from a Qloo result is dropped (the grounding check).
 """
 
 import json
+import logging
 import os
+import threading
 import time
 
 import httpx
@@ -22,6 +24,20 @@ GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 DEFAULT_MODEL = "openai/gpt-oss-120b"  # change with the LLM_MODEL env var
 FALLBACK_MODEL = "openai/gpt-oss-20b"  # used when the main model is rate limited
 MAX_WAIT_SECONDS = 20  # longest we will pause on a rate limit before giving up
+RETRY_DELAY_SECONDS = 1
+
+# Finished passports are remembered for an hour, so repeating a search (or
+# flipping between dial tabs) costs no AI tokens and no Qloo calls.
+RESULT_CACHE_SECONDS = 3600
+RESULT_CACHE_MAX = 200
+_result_cache = {}  # key -> (expires_at, result)
+_result_lock = threading.Lock()
+
+AI_SLOTS = 2  # how many AI runs may happen at the same moment
+AI_QUEUE_SECONDS = 45  # how long a visitor waits for a free slot
+_ai_slots = threading.Semaphore(AI_SLOTS)
+
+logger = logging.getLogger("taste-passport")  # never log keys, only status codes
 MAX_STEPS = 8  # safety limit so the loop can never run forever
 MAX_PLACE_PICKS = 8
 MAX_CULTURE_PICKS = 3
@@ -63,26 +79,30 @@ class AgentError(Exception):
 
 
 def _post_to_groq(model, messages, tools, api_key):
-    try:
-        return httpx.post(
-            GROQ_URL,
-            headers={"Authorization": f"Bearer {api_key}"},
-            json={
-                "model": model,
-                "messages": messages,
-                "tools": tools,
-                "tool_choice": "auto",
-                "temperature": 0.2,
-                # These models "think" before answering; low keeps it fast and
-                # saves tokens (the free tier allows only 8,000 per minute).
-                "reasoning_effort": "low",
-            },
-            timeout=60,
-        )
-    except httpx.TimeoutException:
-        raise AgentError("The AI model took too long to answer. Please try again.")
-    except httpx.HTTPError:
-        raise AgentError("Could not reach the AI model. Please try again.")
+    payload = {
+        "model": model,
+        "messages": messages,
+        "tools": tools,
+        "tool_choice": "auto",
+        "temperature": 0.2,
+        # These models "think" before answering; low keeps it fast and
+        # saves tokens (the free tier allows only 8,000 per minute).
+        "reasoning_effort": "low",
+    }
+    response = None
+    for attempt in range(2):  # one retry if Groq itself has a hiccup (5xx)
+        try:
+            response = httpx.post(GROQ_URL, headers={"Authorization": f"Bearer {api_key}"},
+                                  json=payload, timeout=60)
+        except httpx.TimeoutException:
+            raise AgentError("The AI model took too long to answer. Please try again.")
+        except httpx.HTTPError:
+            raise AgentError("Could not reach the AI model. Please try again.")
+        if response.status_code < 500:
+            break
+        logger.warning("Groq returned %d (attempt %d)", response.status_code, attempt + 1)
+        time.sleep(RETRY_DELAY_SECONDS)
+    return response
 
 
 def llm_call(messages, tools):
@@ -243,29 +263,17 @@ def _user_message(favourites_text, city, people, registry):
     return f"City: {city}\nMy favourites: {favourites_text}"
 
 
-def run_passport(favourites_text, city, dial, people=None, resolved=None):
-    """Main entry point: favourites + city + dial -> grounded result.
-
-    people:   optional [{"name", "favourites"}] for a Group Passport.
-    resolved: optional favourites found by an earlier run (so switching the dial
-              does not search again, which saves LLM tokens).
-    """
-    if dial not in qloo.DIALS:
-        raise AgentError("Unknown dial setting.")
-    registry = Registry()
-    for fav in resolved or []:
-        registry.favourites[fav["entity_id"]] = fav
+def _run_loop(favourites_text, city, dial, people, registry):
+    """Let the LLM call tools until it answers. Returns its final text."""
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": _user_message(favourites_text, city, people, registry)},
     ]
-    final_text = None
     for _ in range(MAX_STEPS):
         reply = llm_call(messages, TOOLS)
         calls = reply.get("tool_calls")
         if not calls:
-            final_text = reply.get("content")
-            break
+            return reply.get("content")
         messages.append({"role": "assistant", "content": reply.get("content"), "tool_calls": calls})
         for call in calls:
             try:
@@ -275,9 +283,63 @@ def run_passport(favourites_text, city, dial, people=None, resolved=None):
             result = run_tool(call["function"]["name"], args, registry, dial)
             messages.append({"role": "tool", "tool_call_id": call["id"],
                              "content": json.dumps(result, ensure_ascii=False)})
+    return None
+
+
+def _fetch_without_ai(city, dial, registry):
+    """The AI is unavailable: ask Qloo directly for whatever is still missing."""
+    ids = list(registry.favourites)
+    kinds = {i["kind"] for i in registry.items.values()}
+    if "place" not in kinds:
+        run_tool("find_places", {"city": city, "entity_ids": ids}, registry, dial)
+    if "culture" not in kinds:
+        run_tool("find_local_culture", {"city": city, "entity_ids": ids}, registry, dial)
+
+
+def _result_key(favourites_text, city, dial, people, resolved):
+    return json.dumps([city.strip().lower(), dial, favourites_text.strip().lower(), people,
+                       sorted(r["entity_id"] for r in resolved or [])], sort_keys=True)
+
+
+def run_passport(favourites_text, city, dial, people=None, resolved=None):
+    """Main entry point: favourites + city + dial -> grounded result.
+
+    people:   optional [{"name", "favourites"}] for a Group Passport.
+    resolved: optional favourites found by an earlier run (so switching the dial
+              does not search again, which saves LLM tokens).
+    Identical requests are answered from a cache without calling the AI again.
+    """
+    if dial not in qloo.DIALS:
+        raise AgentError("Unknown dial setting.")
+    key = _result_key(favourites_text, city, dial, people, resolved)
+    with _result_lock:
+        hit = _result_cache.get(key)
+        if hit and hit[0] > time.time():
+            return hit[1]
+
+    registry = Registry()
+    for fav in resolved or []:
+        registry.favourites[fav["entity_id"]] = fav
+
+    # Only a couple of AI runs at once, so visitors do not use up the free
+    # tier's tokens-per-minute limit all together.
+    if not _ai_slots.acquire(timeout=AI_QUEUE_SECONDS):
+        raise AgentError("Lots of people are using Taste Passport right now. Please try again in a minute.")
+    ai_down = False
+    try:
+        final_text = _run_loop(favourites_text, city, dial, people, registry)
+    except AgentError:
+        if not registry.favourites:
+            raise  # nothing found yet, so there is nothing useful to show
+        # The AI failed after we knew the favourites: still show Qloo's own results.
+        ai_down = True
+        final_text = None
+        _fetch_without_ai(city, dial, registry)
+    finally:
+        _ai_slots.release()
 
     cards, dropped = ground_picks(_parse_picks(final_text), registry)
-    fallback = False
+    fallback = ai_down
     if not cards and registry.items:
         # The LLM gave nothing usable: show Qloo's own top results, with no notes.
         fallback = True
@@ -289,7 +351,7 @@ def run_passport(favourites_text, city, dial, people=None, resolved=None):
         message = "I couldn't find any of your favourites in Qloo. Try more well-known titles or artists."
     elif not cards:
         message = f"Qloo returned no results for {city} with these favourites. Try a larger city or other favourites."
-    return {
+    result = {
         "city": city,
         "dial": dial,
         "favourites": list(registry.favourites.values()),
@@ -299,3 +361,9 @@ def run_passport(favourites_text, city, dial, people=None, resolved=None):
         "fallback": fallback,
         "message": message,
     }
+    if cards and not fallback and not message:  # never cache a degraded answer
+        with _result_lock:
+            if len(_result_cache) >= RESULT_CACHE_MAX:
+                _result_cache.pop(next(iter(_result_cache)))
+            _result_cache[key] = (time.time() + RESULT_CACHE_SECONDS, result)
+    return result

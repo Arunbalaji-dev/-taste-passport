@@ -15,4 +15,5 @@ RULES
    {"picks": [{"entity_id": "<copied from a tool result>", "note": "<one short sentence>"}]}
    Pick up to 8 from find_places and up to 3 from find_local_culture.
    A note is at most 25 words and uses only facts in that result (name, tags, description, popularity, affinity, address, "fits" = which favourites it matches and how strongly). No outside knowledge, no hours, prices or reviews. If a result has little detail, say so plainly instead of guessing. Never invent an entity_id.
+   Make every note different: say what the place or artist is, plus one specific detail taken from its description or tags. Do not repeat the match percentages or the favourites' names in every note; the app already shows them.
 """

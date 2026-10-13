@@ -77,7 +77,7 @@ taste-passport/
 2. Qloo tools: `search_entities`, `find_places(city, entity_ids, dial, tags)`, `find_local_culture(city, entity_ids, culture_type)` (DONE; see "Confirmed from live data")
 3. Agent loop + Adventure Dial logic + grounding checks (DONE: app/agent.py, POST /api/passport, personalization test; see "Groq / LLM notes")
 4. Real website: input form, dial slider, result cards, map, loading and error states, mobile layout
-5. Hardening: cache Qloo responses, timeouts, retries, friendly fallbacks, cold-start message
+5. Hardening: cache Qloo responses, timeouts, retries, friendly fallbacks, cold-start message (DONE: in-memory caches (Qloo 1h, finished passports 1h), retries on timeouts/5xx, AI-down fallback that shows Qloo's own results, per-visitor rate limit of 12/min, max 2 simultaneous AI runs, "Try again" button, friendly 500s. Caches live in memory, so they reset when Render restarts or sleeps; that is fine for the free tier.)
 6. Final deploy, README with run instructions, project description
 
 ## Chosen features (backlog, built inside the phases above)
