@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Taste Passport</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="min-h-screen bg-gradient-to-br from-indigo-50 to-rose-50 text-slate-800">
+  <main class="mx-auto flex min-h-screen max-w-xl flex-col items-center justify-center px-4 py-10 text-center">
+    <h1 class="text-4xl font-bold tracking-tight sm:text-5xl">Taste Passport</h1>
+    <p class="mt-4 text-lg text-slate-600">
+      Discover new places in any city that you'll actually love, based on what you already love.
+    </p>
+
+    <button id="check-btn"
+            class="mt-8 rounded-full bg-indigo-600 px-6 py-3 font-semibold text-white shadow hover:bg-indigo-700 disabled:opacity-60">
+      Check connection
+    </button>
+
+    <div id="result" class="mt-6 w-full" aria-live="polite"></div>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
