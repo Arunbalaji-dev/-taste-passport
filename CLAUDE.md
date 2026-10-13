@@ -75,7 +75,7 @@ taste-passport/
 0. Setup: repo, MIT license, this file, `.env.example`, keys (DONE)
 1. Walking skeleton: "Hello Taste Passport" page served by FastAPI, deployed live (DONE)
 2. Qloo tools: `search_entities`, `find_places(city, entity_ids, dial, tags)`, `find_local_culture(city, entity_ids, culture_type)` (DONE; see "Confirmed from live data")
-3. Agent loop + Adventure Dial logic + grounding checks
+3. Agent loop + Adventure Dial logic + grounding checks (DONE: app/agent.py, POST /api/passport, personalization test; see "Groq / LLM notes")
 4. Real website: input form, dial slider, result cards, map, loading and error states, mobile layout
 5. Hardening: cache Qloo responses, timeouts, retries, friendly fallbacks, cold-start message
 6. Final deploy, README with run instructions, project description
@@ -128,4 +128,13 @@ All four use data already confirmed in "Confirmed from live data". Do not add ot
 - filter.tags: a comma-separated list means OR; a repeated parameter returns 400; a parent tag also matches its children (restaurant includes bar, cafe, bakery).
 - **filter.location.query is silently IGNORED for artist, brand, tv_show, podcast, movie, person and book** (Berlin and Tokyo returned identical lists). Use signal.location.query instead for these; it does change the results (different brands per city, a Berlin-set show for Berlin). Only place and destination respect filter.location. Treat the results as "what Qloo ranks higher for this city and taste", never as "this artist is from this city".
 - video_game returns 400 with a location. destination returns neighbourhoods/cities (2-4 results), not venues.
-- NOT yet checked: how much results differ between two very different tastes in the same city and dial setting. Test this before claiming personalization in the UI or README (the Phase 3 grounding work should include it).
+- **Personalization is uneven (tested Phase 3).** Taste A (Interstellar + A.R. Rahman) vs taste B (Metallica + Fast & Furious), 15 results each, shared places: Tokyo 2-4, Toronto 1-4 (good), but Berlin 9 and Chennai 7-11 (weak, nearly the same list). Changing signal.interests.entities.weight, signal.location.weight or sort_by made NO difference, so this is a Qloo data limit, not something we can tune. Do not claim "personalized for you" without qualification. DECISION (owner): the UI does NOT show a per-city "results look generic" warning; the limitation is instead stated once in the README. Keep marketing copy modest (say "based on your taste", not "uniquely personalized").
+- The per-place "fits" shares are close to even (about 40/60 to 60/40) for every place, so the "why this fits you" bars show which favourites contributed, but they do not rank places against each other. Do not present them as a strong signal.
+- Group Passport (A+B combined) vs A alone shares 10-14 of 15 in Berlin and Chennai, but only 3-10 in Tokyo and Toronto. Combining tastes visibly changes results only in cities where Qloo is taste-sensitive.
+
+## Groq / LLM notes (confirmed Phase 3)
+
+- Provider: Groq (OpenAI-compatible, https://api.groq.com/openai/v1/chat/completions). Models available to our key include openai/gpt-oss-120b (default, set with LLM_MODEL), openai/gpt-oss-20b (backup), qwen/qwen3.8-27b.
+- Free-tier limit: **8,000 tokens per minute PER MODEL**, about 1,000 requests per day. One passport run costs roughly 5-7k tokens, so expect about one passport per minute per model. `llm_call` falls back to the backup model on a 429, then waits up to 20 seconds once, then shows a friendly message. The three-column dial view (3 runs) must therefore share one LLM call or use cached results; never run three agent loops at once.
+- gpt-oss models "think" before answering; reasoning_effort="low" keeps this cheap. With a tiny max_tokens the visible answer can come back empty, so never set max_tokens low.
+- Grounding design: the LLM only picks tools and writes one short note per pick. All card data comes from Qloo results keyed by entity_id; picks with an unknown entity_id are dropped, duplicate names are removed, and if the LLM output is unusable we show Qloo's own top results without notes. Checked live: facts in the notes came from Qloo descriptions, not from LLM knowledge.
