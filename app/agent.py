@@ -9,6 +9,7 @@ that did not come from a Qloo result is dropped (the grounding check).
 import json
 import logging
 import os
+import re
 import threading
 import time
 
@@ -146,7 +147,19 @@ class Registry:
     def __init__(self):
         self.favourites = {}  # entity_id -> {entity_id, name, type}
         self.items = {}       # entity_id -> cleaned place/culture dict + kind + fits
-        self.order = []       # entity_ids in the order Qloo returned them, per kind
+        self.expected = []    # favourites the user typed, split by commas
+        self.searched = []    # names the LLM actually looked up
+        self.nudged = False   # we remind the LLM of skipped favourites only once
+
+    def missing_favourites(self):
+        """User favourites the LLM never searched for (it sometimes skips one)."""
+        def simple(text):
+            # "Fast & Furious" and "Fast and Furious" should count as the same title.
+            return "".join(ch for ch in text.lower().replace("&", "and") if ch.isalnum())
+
+        searched = [simple(s) for s in self.searched]
+        return [e for e in self.expected
+                if simple(e) and not any(simple(e) in s or s in simple(e) for s in searched if s)]
 
     def fits(self, contributions):
         """Turn Qloo's explainability scores into [{"name": favourite, "share": 0-1}]."""
@@ -191,10 +204,19 @@ def run_tool(name, args, registry, dial):
     """Run one tool the LLM asked for. Returns a JSON-able result for the LLM."""
     try:
         if name == "search_entities":
+            registry.searched.append(args["name"])
             hits = qloo.search_entities(args["name"], f"urn:entity:{args['entity_type']}", take=3)
             for hit in hits[:1]:  # the top hit is what we treat as the user's favourite
                 registry.favourites[hit["entity_id"]] = {**hit, "person": args.get("person")}
             return [{k: h[k] for k in ("entity_id", "name", "type", "disambiguation")} for h in hits]
+        if name in ("find_places", "find_local_culture") and not registry.nudged:
+            missing = registry.missing_favourites()
+            if missing:
+                # The LLM sometimes skips a favourite. Send it back once to fix that.
+                registry.nudged = True
+                return {"error": "You have not searched for these favourites yet: " + "; ".join(missing)
+                        + ". Call search_entities for each of them now, then call find_places and "
+                          "find_local_culture again with ALL entity_ids."}
         if name == "find_places":
             # The dial always comes from the user, never from the LLM.
             # Only 10 results: every result is re-sent to the LLM on each step,
@@ -320,6 +342,9 @@ def run_passport(favourites_text, city, dial, people=None, resolved=None):
     registry = Registry()
     for fav in resolved or []:
         registry.favourites[fav["entity_id"]] = fav
+    if not resolved:
+        texts = [p["favourites"] for p in people] if people else [favourites_text]
+        registry.expected = [part.strip() for text in texts for part in re.split(r"[,;\n]", text) if part.strip()]
 
     # Only a couple of AI runs at once, so visitors do not use up the free
     # tier's tokens-per-minute limit all together.

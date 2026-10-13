@@ -78,7 +78,7 @@ taste-passport/
 3. Agent loop + Adventure Dial logic + grounding checks (DONE: app/agent.py, POST /api/passport, personalization test; see "Groq / LLM notes")
 4. Real website: input form, dial slider, result cards, map, loading and error states, mobile layout
 5. Hardening: cache Qloo responses, timeouts, retries, friendly fallbacks, cold-start message (DONE: in-memory caches (Qloo 1h, finished passports 1h), retries on timeouts/5xx, AI-down fallback that shows Qloo's own results, per-visitor rate limit of 12/min, max 2 simultaneous AI runs, "Try again" button, friendly 500s. Caches live in memory, so they reset when Render restarts or sleeps; that is fine for the free tier.)
-6. Final deploy, README with run instructions, project description
+6. Final deploy, README with run instructions, project description (README, pytest.ini and .env.example DONE; live Render check and project description pending)
 
 ## Chosen features (backlog, built inside the phases above)
 
@@ -139,4 +139,5 @@ All four use data already confirmed in "Confirmed from live data". Do not add ot
 - Provider: Groq (OpenAI-compatible, https://api.groq.com/openai/v1/chat/completions). Models available to our key include openai/gpt-oss-120b (default, set with LLM_MODEL), openai/gpt-oss-20b (backup), qwen/qwen3.8-27b.
 - Free-tier limit: **8,000 tokens per minute PER MODEL**, about 1,000 requests per day. One passport run costs roughly 5-7k tokens, so expect about one passport per minute per model. `llm_call` falls back to the backup model on a 429, then waits up to 20 seconds once, then shows a friendly message. The three-column dial view (3 runs) must therefore share one LLM call or use cached results; never run three agent loops at once.
 - gpt-oss models "think" before answering; reasoning_effort="low" keeps this cheap. With a tiny max_tokens the visible answer can come back empty, so never set max_tokens low.
+- **The LLM silently skips favourites.** In a live Group Passport it never searched "Fast & Furious" (3 of 4 looked up, on every run). Never trust the LLM to enumerate the user's input. The code splits the typed favourites on commas and, if the LLM calls find_places before searching all of them, returns an error naming the skipped ones (once only, so it cannot loop). Verified live: all 4 matched afterwards.
 - Grounding design: the LLM only picks tools and writes one short note per pick. All card data comes from Qloo results keyed by entity_id; picks with an unknown entity_id are dropped, duplicate names are removed, and if the LLM output is unusable we show Qloo's own top results without notes. Checked live: facts in the notes came from Qloo descriptions, not from LLM knowledge.

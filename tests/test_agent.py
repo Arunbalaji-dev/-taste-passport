@@ -154,11 +154,59 @@ def test_group_passport_tags_each_favourite_with_its_person(monkeypatch, fake_ql
     final = json.dumps({"picks": [{"entity_id": "P1", "note": "ok"}]})
     monkeypatch.setattr(agent, "llm_call", scripted_llm(
         tool_call("1", "search_entities", {"name": "Interstellar", "entity_type": "movie", "person": "Ana"}),
-        tool_call("2", "find_places", {"city": "Berlin", "entity_ids": ["ID-MOVIE"]}),
+        tool_call("2", "search_entities", {"name": "Metallica", "entity_type": "artist", "person": "Ben"}),
+        tool_call("3", "find_places", {"city": "Berlin", "entity_ids": ["ID-MOVIE"]}),
         {"content": final}))
     people = [{"name": "Ana", "favourites": "Interstellar"}, {"name": "Ben", "favourites": "Metallica"}]
+    # Each name must resolve to its own entity (the shared fake returns the same one for every name).
+    monkeypatch.setattr(qloo, "search_entities", lambda name, t, take=3: [
+        {**MOVIE, "entity_id": "ID-MOVIE" if name == "Interstellar" else "ID-MET", "name": name}])
     result = agent.run_passport("", "Berlin", "bridge", people=people)
     assert result["places"][0]["fits"] == [{"name": "Interstellar", "share": 0.6, "person": "Ana"}]
+
+
+def test_skipped_favourite_is_sent_back_to_the_ai_once(monkeypatch, fake_qloo):
+    """Real bug: the AI silently skipped 'Fast & Furious' in a Group Passport."""
+    final = json.dumps({"picks": [{"entity_id": "P1", "note": "ok"}]})
+    seen_tool_results = []
+
+    def llm(messages, tools):
+        if messages[-1]["role"] == "tool":
+            seen_tool_results.append(messages[-1]["content"])
+        step = len(seen_tool_results)
+        return [tool_call("1", "search_entities", {"name": "Metallica", "entity_type": "artist"}),
+                tool_call("2", "find_places", {"city": "Berlin", "entity_ids": ["ID-MOVIE"]}),   # skipped one!
+                tool_call("3", "search_entities", {"name": "Fast & Furious", "entity_type": "movie"}),
+                tool_call("4", "find_places", {"city": "Berlin", "entity_ids": ["ID-MOVIE"]}),
+                {"content": final}][step]
+
+    monkeypatch.setattr(agent, "llm_call", llm)
+    result = agent.run_passport("Metallica, Fast & Furious", "Berlin", "bridge")
+    assert "Fast & Furious" in seen_tool_results[1]  # the AI was told what it skipped
+    assert [p["name"] for p in result["places"]] == ["Bar One"]  # and it recovered
+
+
+def test_nudge_happens_only_once_and_never_for_resolved_favourites(monkeypatch, fake_qloo):
+    registry = agent.Registry()
+    registry.expected = ["Metallica", "Fast & Furious"]
+    first = agent.run_tool("find_places", {"city": "Berlin", "entity_ids": ["x"]}, registry, "bridge")
+    assert "error" in first
+    second = agent.run_tool("find_places", {"city": "Berlin", "entity_ids": ["x"]}, registry, "bridge")
+    assert isinstance(second, list)  # a second attempt goes through, so it can never loop
+
+    monkeypatch.setattr(agent, "llm_call", scripted_llm(
+        tool_call("1", "find_places", {"city": "Berlin", "entity_ids": ["ID-MOVIE"]}),
+        {"content": json.dumps({"picks": [{"entity_id": "P1", "note": "ok"}]})}))
+    resolved = [{"entity_id": "ID-MOVIE", "name": "Interstellar", "type": "x", "person": None}]
+    result = agent.run_passport("Metallica, Fast & Furious", "Berlin", "bridge", resolved=resolved)
+    assert result["places"]  # resolved favourites skip the check entirely
+
+
+def test_missing_check_ignores_spelling_and_punctuation():
+    registry = agent.Registry()
+    registry.expected = ["A.R. Rahman", "Fast & Furious", "studio ghibli"]
+    registry.searched = ["AR Rahman", "Fast and Furious"]
+    assert registry.missing_favourites() == ["studio ghibli"]  # spelling and "&" vs "and" do not matter
 
 
 def test_same_search_is_answered_from_cache_without_the_ai(monkeypatch, fake_qloo):
