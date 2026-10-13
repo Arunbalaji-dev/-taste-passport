@@ -4,23 +4,92 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Taste Passport</title>
+  <meta name="description" content="Discover new places in any city that you'll actually love, based on what you already love.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="/static/style.css">
 </head>
-<body class="min-h-screen bg-gradient-to-br from-indigo-50 to-rose-50 text-slate-800">
-  <main class="mx-auto flex min-h-screen max-w-xl flex-col items-center justify-center px-4 py-10 text-center">
-    <h1 class="text-4xl font-bold tracking-tight sm:text-5xl">Taste Passport</h1>
-    <p class="mt-4 text-lg text-slate-600">
+<body>
+  <a href="#results" class="skip-link">Skip to results</a>
+
+  <header class="mx-auto max-w-6xl px-4 pt-8 pb-4 sm:px-6 sm:pt-12">
+    <h1 class="wordmark">Taste Passport</h1>
+    <p class="mt-2 max-w-xl text-lg text-ink-soft">
       Discover new places in any city that you'll actually love, based on what you already love.
     </p>
+  </header>
 
-    <button id="check-btn"
-            class="mt-8 rounded-full bg-indigo-600 px-6 py-3 font-semibold text-white shadow hover:bg-indigo-700 disabled:opacity-60">
-      Check connection
-    </button>
+  <div class="mx-auto grid max-w-6xl grid-cols-1 gap-8 px-4 pb-16 sm:px-6 lg:grid-cols-[22rem_minmax(0,1fr)]">
+    <!-- Left rail: the form -->
+    <aside class="lg:sticky lg:top-6 lg:self-start">
+      <form id="passport-form" class="panel" novalidate>
+        <div class="field">
+          <label for="city">City</label>
+          <input id="city" name="city" type="text" autocomplete="off" placeholder="Tokyo" maxlength="80" required>
+        </div>
 
-    <div id="result" class="mt-6 w-full" aria-live="polite"></div>
-  </main>
+        <fieldset class="field">
+          <legend>Who is this for?</legend>
+          <div class="segmented" role="radiogroup">
+            <label><input type="radio" name="mode" value="solo" checked><span>Just me</span></label>
+            <label><input type="radio" name="mode" value="group"><span>A group</span></label>
+          </div>
+        </fieldset>
+
+        <div id="solo-fields" class="field">
+          <label for="favourites">What do you love?</label>
+          <textarea id="favourites" name="favourites" rows="3" maxlength="500"
+                    placeholder="Interstellar, A.R. Rahman, Studio Ghibli"></textarea>
+          <p class="hint">Films, shows, artists, brands, books or podcasts. Separate them with commas.</p>
+        </div>
+
+        <div id="group-fields" class="field" hidden>
+          <p class="label-like">What does everyone love?</p>
+          <div id="people-list"></div>
+          <button type="button" id="add-person" class="link-button">Add another person</button>
+        </div>
+
+        <fieldset class="field">
+          <legend>How far from your comfort zone?</legend>
+          <div class="dials" role="radiogroup" id="dial-group">
+            <label class="dial" style="--dial:var(--comfort)">
+              <input type="radio" name="dial" value="comfort">
+              <span class="dial-name">Comfort</span>
+              <span class="dial-blurb">Well-known places close to your taste</span>
+            </label>
+            <label class="dial" style="--dial:var(--bridge)">
+              <input type="radio" name="dial" value="bridge" checked>
+              <span class="dial-name">Bridge</span>
+              <span class="dial-blurb">New places connected to your taste</span>
+            </label>
+            <label class="dial" style="--dial:var(--adventure)">
+              <input type="radio" name="dial" value="adventure">
+              <span class="dial-name">Adventure</span>
+              <span class="dial-blurb">Lesser-known places that still fit</span>
+            </label>
+          </div>
+        </fieldset>
+
+        <p id="form-error" class="form-error" role="alert" hidden></p>
+        <button type="submit" id="submit-btn" class="primary">Find my places</button>
+        <button type="button" id="example-btn" class="link-button mt-3">Try an example</button>
+      </form>
+    </aside>
+
+    <!-- Right: results -->
+    <main id="results" tabindex="-1" aria-live="polite">
+      <div id="results-body"></div>
+    </main>
+  </div>
+
+  <footer class="mx-auto max-w-6xl px-4 pb-10 text-sm text-ink-soft sm:px-6">
+    Places and culture come from Qloo's taste data. An AI model only picks what to look up and writes the short notes.
+  </footer>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

@@ -49,7 +49,7 @@ def test_happy_path_builds_cards_from_qloo_data(monkeypatch, fake_qloo):
     assert fake_qloo["dial"] == "adventure"  # the user's dial wins over the LLM's
     assert [p["name"] for p in result["places"]] == ["Bar One"]
     assert result["places"][0]["note"] == "Fits your taste."
-    assert result["places"][0]["fits"] == [{"name": "Interstellar", "share": 0.6}]
+    assert result["places"][0]["fits"] == [{"name": "Interstellar", "share": 0.6, "person": None}]
     assert result["dropped"] == 0 and not result["fallback"]
 
 
@@ -130,6 +130,35 @@ def test_rate_limit_everywhere_gives_friendly_error(monkeypatch):
     monkeypatch.setattr(agent, "_post_to_groq", lambda *a: FakeResponse(429, {"retry-after": "300"}))
     with pytest.raises(agent.AgentError, match="busy"):
         agent.llm_call([], [])  # waiting 300s is too long, so it gives up at once
+
+
+def test_resolved_favourites_are_reused_without_searching(monkeypatch, fake_qloo):
+    seen_messages = []
+    final = json.dumps({"picks": [{"entity_id": "P1", "note": "ok"}]})
+
+    def llm(messages, tools):
+        seen_messages.append(messages[1]["content"])
+        if len(seen_messages) == 1:
+            return tool_call("1", "find_places", {"city": "Berlin", "entity_ids": ["ID-MOVIE"]})
+        return {"content": final}
+
+    monkeypatch.setattr(agent, "llm_call", llm)
+    resolved = [{"entity_id": "ID-MOVIE", "name": "Interstellar", "type": "x", "person": None}]
+    result = agent.run_passport("", "Berlin", "bridge", resolved=resolved)
+    assert "do NOT call search_entities" in seen_messages[0]
+    assert result["favourites"][0]["name"] == "Interstellar"
+    assert result["places"][0]["fits"][0]["name"] == "Interstellar"
+
+
+def test_group_passport_tags_each_favourite_with_its_person(monkeypatch, fake_qloo):
+    final = json.dumps({"picks": [{"entity_id": "P1", "note": "ok"}]})
+    monkeypatch.setattr(agent, "llm_call", scripted_llm(
+        tool_call("1", "search_entities", {"name": "Interstellar", "entity_type": "movie", "person": "Ana"}),
+        tool_call("2", "find_places", {"city": "Berlin", "entity_ids": ["ID-MOVIE"]}),
+        {"content": final}))
+    people = [{"name": "Ana", "favourites": "Interstellar"}, {"name": "Ben", "favourites": "Metallica"}]
+    result = agent.run_passport("", "Berlin", "bridge", people=people)
+    assert result["places"][0]["fits"] == [{"name": "Interstellar", "share": 0.6, "person": "Ana"}]
 
 
 def test_unknown_dial_rejected():

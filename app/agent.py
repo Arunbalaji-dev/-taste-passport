@@ -35,6 +35,7 @@ TOOLS = [
         "parameters": {"type": "object", "properties": {
             "name": {"type": "string"},
             "entity_type": {"type": "string", "enum": ENTITY_TYPES},
+            "person": {"type": "string", "description": "Whose favourite this is, only if several people are listed."},
         }, "required": ["name", "entity_type"]},
     }},
     {"type": "function", "function": {
@@ -133,7 +134,8 @@ class Registry:
         for c in contributions or []:
             fav = self.favourites.get(c.get("entity_id"))
             if fav and c.get("score") is not None:
-                out.append({"name": fav["name"], "share": round(c["score"], 2)})
+                out.append({"name": fav["name"], "share": round(c["score"], 2),
+                            "person": fav.get("person")})
         return out
 
     def add_items(self, items, kind):
@@ -171,7 +173,7 @@ def run_tool(name, args, registry, dial):
         if name == "search_entities":
             hits = qloo.search_entities(args["name"], f"urn:entity:{args['entity_type']}", take=3)
             for hit in hits[:1]:  # the top hit is what we treat as the user's favourite
-                registry.favourites[hit["entity_id"]] = hit
+                registry.favourites[hit["entity_id"]] = {**hit, "person": args.get("person")}
             return [{k: h[k] for k in ("entity_id", "name", "type", "disambiguation")} for h in hits]
         if name == "find_places":
             # The dial always comes from the user, never from the LLM.
@@ -229,14 +231,33 @@ def ground_picks(picks, registry):
 
 # ---------- the agent loop ----------
 
-def run_passport(favourites_text, city, dial):
-    """Main entry point: free-text favourites + city + dial -> grounded result."""
+def _user_message(favourites_text, city, people, registry):
+    """Describe the request to the LLM. Already-resolved favourites skip the search step."""
+    if registry.favourites:
+        lines = [f"- {f['name']}" + (f" ({f['person']})" if f.get("person") else "") + f", entity_id {f['entity_id']}"
+                 for f in registry.favourites.values()]
+        return (f"City: {city}\nFavourites already resolved (do NOT call search_entities):\n" + "\n".join(lines))
+    if people:
+        lines = [f"- {p['name']}: {p['favourites']}" for p in people]
+        return f"City: {city}\nSeveral people, pass each one's name as `person` in search_entities:\n" + "\n".join(lines)
+    return f"City: {city}\nMy favourites: {favourites_text}"
+
+
+def run_passport(favourites_text, city, dial, people=None, resolved=None):
+    """Main entry point: favourites + city + dial -> grounded result.
+
+    people:   optional [{"name", "favourites"}] for a Group Passport.
+    resolved: optional favourites found by an earlier run (so switching the dial
+              does not search again, which saves LLM tokens).
+    """
     if dial not in qloo.DIALS:
         raise AgentError("Unknown dial setting.")
     registry = Registry()
+    for fav in resolved or []:
+        registry.favourites[fav["entity_id"]] = fav
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": f"City: {city}\nMy favourites: {favourites_text}"},
+        {"role": "user", "content": _user_message(favourites_text, city, people, registry)},
     ]
     final_text = None
     for _ in range(MAX_STEPS):

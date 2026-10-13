@@ -33,17 +33,39 @@ def health():
     }
 
 
+class Person(BaseModel):
+    name: str = Field(min_length=1, max_length=30)
+    favourites: str = Field(min_length=2, max_length=300)
+
+
+class ResolvedFavourite(BaseModel):
+    entity_id: str = Field(max_length=64)
+    name: str = Field(max_length=120)
+    type: str | None = Field(default=None, max_length=60)
+    person: str | None = Field(default=None, max_length=30)
+
+
 class PassportRequest(BaseModel):
     # Length limits keep one request from sending huge text to the free-tier LLM.
-    favourites: str = Field(min_length=2, max_length=500)
+    favourites: str = Field(default="", max_length=500)
+    people: list[Person] | None = Field(default=None, max_length=4)  # Group Passport
+    resolved: list[ResolvedFavourite] | None = Field(default=None, max_length=12)
     city: str = Field(min_length=2, max_length=80)
     dial: str = "bridge"
 
 
 @app.post("/api/passport")
 def passport(request: PassportRequest):
+    if len(request.favourites.strip()) < 2 and not request.people:
+        return JSONResponse(status_code=422, content={"error": "Tell me at least one thing you love."})
     try:
-        return run_passport(request.favourites, request.city.strip(), request.dial)
+        return run_passport(
+            request.favourites,
+            request.city.strip(),
+            request.dial,
+            people=[p.model_dump() for p in request.people] if request.people else None,
+            resolved=[r.model_dump() for r in request.resolved] if request.resolved else None,
+        )
     except (AgentError, QlooError) as err:
         # Friendly message, never a stack trace or a blank page.
         return JSONResponse(status_code=502, content={"error": str(err)})

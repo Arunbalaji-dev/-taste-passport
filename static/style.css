@@ -1,4 +1,199 @@
-/* Small custom styles; most styling comes from Tailwind classes in index.html. */
+/* Taste Passport styles. Tailwind (CDN) handles page layout; this file holds the
+   colour tokens and the parts that give the app its look. */
+
+:root {
+  --ink: #16213e;
+  --ink-soft: #4b5670;
+  --paper: #f2f4f7;
+  --card: #ffffff;
+  --line: #d9dee7;
+  --comfort: #2f6fde;
+  --bridge: #b87a00;     /* darker amber so text on white stays readable */
+  --bridge-pin: #e0a100; /* brighter amber for map pins */
+  --adventure: #d6336c;
+  --focus: #16213e;
+}
+
+* { box-sizing: border-box; }
+
+html { color-scheme: light; }
+
 body {
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  line-height: 1.55;
+}
+
+.text-ink-soft { color: var(--ink-soft); }
+
+h1, h2, h3, h4, .wordmark {
+  font-family: "Bricolage Grotesque", "Instrument Sans", system-ui, sans-serif;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+  margin: 0;
+}
+
+.wordmark { font-size: clamp(2.25rem, 6vw, 3.5rem); font-weight: 800; }
+
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+.skip-link {
+  position: absolute; left: -999px; top: 0; background: var(--ink); color: #fff; padding: .5rem 1rem; z-index: 50;
+}
+.skip-link:focus { left: 0; }
+
+/* ---------- form ---------- */
+.panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 1.25rem;
+}
+.field { margin: 0 0 1.1rem; padding: 0; border: 0; }
+.field label, .field legend, .label-like {
+  display: block; font-weight: 600; font-size: .95rem; margin-bottom: .35rem; padding: 0;
+}
+.hint { margin: .35rem 0 0; font-size: .85rem; color: var(--ink-soft); }
+
+input[type="text"], textarea {
+  width: 100%;
+  border: 1px solid #b9c1cf;
+  border-radius: 8px;
+  padding: .6rem .7rem;
+  font: inherit;
+  background: #fff;
+  color: var(--ink);
+}
+textarea { resize: vertical; }
+
+.segmented { display: flex; border: 1px solid #b9c1cf; border-radius: 8px; overflow: hidden; }
+.segmented label { flex: 1; margin: 0; font-weight: 500; }
+.segmented input { position: absolute; opacity: 0; pointer-events: none; }
+.segmented span { display: block; text-align: center; padding: .5rem; cursor: pointer; }
+.segmented input:checked + span { background: var(--ink); color: #fff; }
+.segmented input:focus-visible + span { outline: 3px solid var(--focus); outline-offset: -3px; }
+
+.person-row { display: grid; grid-template-columns: 6rem 1fr auto; gap: .4rem; margin-bottom: .5rem; }
+.person-row button { background: none; border: 0; color: var(--ink-soft); cursor: pointer; font-size: 1.2rem; padding: 0 .4rem; }
+
+.link-button {
+  background: none; border: 0; padding: 0; color: var(--ink); font: inherit;
+  text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+}
+.mt-3 { margin-top: .75rem; }
+
+/* The three dial settings share one control; its colour matches the map pins. */
+.dials { display: grid; gap: .5rem; }
+/* "label.dial" is as specific as ".field label", so these padding/margin win. */
+.field label.dial {
+  font-weight: 400;
+}
+.dial {
+  display: block; position: relative; cursor: pointer;
+  border: 1.5px solid var(--line); border-left: 6px solid var(--dial);
+  border-radius: 8px; margin: 0;
+}
+.field label.dial { padding: .55rem .75rem; margin: 0; }
+.dial input { position: absolute; opacity: 0; pointer-events: none; }
+.dial-name { display: block; font-weight: 700; font-family: "Bricolage Grotesque", sans-serif; font-size: 1.05rem; }
+.dial-blurb { display: block; font-size: .85rem; color: var(--ink-soft); font-weight: 400; }
+.dial:has(input:checked) { border-color: var(--dial); background: color-mix(in srgb, var(--dial) 9%, white); }
+.dial:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: 2px; }
+.dials[aria-busy="true"] .dial { opacity: .6; cursor: progress; }
+
+.primary {
+  width: 100%; background: var(--ink); color: #fff; border: 0; border-radius: 10px;
+  padding: .8rem 1rem; font: inherit; font-weight: 600; cursor: pointer;
+}
+.primary:hover:not(:disabled) { background: #24325c; }
+.primary:disabled { opacity: .6; cursor: progress; }
+
+.form-error {
+  background: #fdecef; color: #8a1c3a; border: 1px solid #f3b9c7;
+  border-radius: 8px; padding: .55rem .75rem; margin: 0 0 .9rem; font-size: .92rem;
+}
+
+/* ---------- results ---------- */
+.results-head { display: flex; gap: 1rem; align-items: center; margin-bottom: 1.25rem; }
+.results-head h2 { font-size: clamp(1.4rem, 3.5vw, 1.9rem); font-weight: 700; }
+.results-head p { margin: .25rem 0 0; color: var(--ink-soft); }
+
+/* The stamp: the one memorable element. It lands once when results arrive. */
+.stamp { flex: none; width: 104px; height: 104px; color: var(--dial); transform: rotate(-8deg); }
+.stamp.land { animation: stamp-in .45s cubic-bezier(.2, .9, .3, 1.2) both; }
+@keyframes stamp-in {
+  from { transform: rotate(-24deg) scale(1.7); opacity: 0; }
+  to { transform: rotate(-8deg) scale(1); opacity: .95; }
+}
+
+.section-title { font-size: 1.25rem; font-weight: 700; margin: 2rem 0 .25rem; }
+.section-note { margin: 0 0 .9rem; color: var(--ink-soft); font-size: .92rem; }
+
+#map { height: 320px; border-radius: 14px; border: 1px solid var(--line); margin-bottom: .5rem; z-index: 0; }
+.map-legend { display: flex; flex-wrap: wrap; gap: .35rem 1rem; font-size: .85rem; color: var(--ink-soft); margin: 0 0 .5rem; }
+.legend-dot { display: inline-block; width: .7rem; height: .7rem; border-radius: 50%; margin-right: .35rem; vertical-align: -1px; }
+
+.place {
+  display: grid; grid-template-columns: 96px 1fr; gap: .9rem;
+  background: var(--card); border: 1px solid var(--line); border-left: 6px solid var(--dial);
+  border-radius: 10px; padding: .8rem; margin-bottom: .75rem; scroll-margin-top: 1rem;
+}
+.place.highlight { box-shadow: 0 0 0 3px var(--dial); }
+.place.clickable { cursor: pointer; }
+.place h4 { font-size: 1.1rem; font-weight: 700; }
+.place .addr { margin: .1rem 0 0; font-size: .85rem; color: var(--ink-soft); }
+.place .note { margin: .45rem 0 0; }
+.place > div, aside, #results { min-width: 0; }
+.place h4, .place .addr, .place .note { overflow-wrap: anywhere; }
+.thumb-wrap { position: relative; width: 96px; height: 96px; }
+.thumb, .thumb-img {
+  position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 8px;
+}
+.thumb {
+  background: color-mix(in srgb, var(--dial) 14%, #e6e9ef);
+  display: flex; align-items: center; justify-content: center;
+  font-family: "Bricolage Grotesque", sans-serif; font-size: 1.8rem; font-weight: 700; color: var(--dial);
+}
+.thumb-img { object-fit: cover; }
+
+.fits { margin: .6rem 0 0; padding: 0; list-style: none; display: grid; gap: .25rem; }
+.fit { display: grid; grid-template-columns: minmax(0, 9rem) 1fr 2.6rem; gap: .5rem; align-items: center; font-size: .85rem; }
+.fit-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fit-bar { height: 8px; border-radius: 4px; background: #e6e9ef; overflow: hidden; }
+.fit-bar i { display: block; height: 100%; background: var(--dial); }
+.fit-pct { text-align: right; color: var(--ink-soft); }
+.no-fits { font-size: .85rem; color: var(--ink-soft); margin: .6rem 0 0; }
+
+.chips { display: flex; flex-wrap: wrap; gap: .35rem; margin: .6rem 0 0; padding: 0; list-style: none; }
+.chip { font-size: .8rem; border: 1px solid var(--line); border-radius: 999px; padding: .1rem .55rem; color: var(--ink-soft); }
+
+.culture-grid { display: grid; gap: .75rem; }
+@media (min-width: 640px) { .culture-grid { grid-template-columns: 1fr 1fr; } .culture-grid .place { margin: 0; } }
+
+/* empty, loading, messages */
+.empty, .message, .loading {
+  background: var(--card); border: 1px dashed #b9c1cf; border-radius: 14px; padding: 1.5rem;
+}
+.empty h2, .loading h2 { font-size: 1.4rem; font-weight: 700; margin-bottom: .4rem; }
+.message { border-style: solid; }
+.message.error { border-color: #f3b9c7; background: #fdecef; color: #6e1830; }
+.notice { font-size: .9rem; color: var(--ink-soft); margin: 0 0 1rem; }
+.spinner {
+  width: 28px; height: 28px; border-radius: 50%; border: 4px solid #d3d9e4; border-top-color: var(--dial, var(--ink));
+  animation: spin 0.9s linear infinite; margin-bottom: .75rem;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 520px) {
+  .place { grid-template-columns: 72px 1fr; }
+  .thumb-wrap { width: 72px; height: 72px; }
+  .stamp { width: 84px; height: 84px; }
+  .fit { grid-template-columns: minmax(0, 6.5rem) 1fr 2.4rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stamp.land { animation: none; }
+  .spinner { animation-duration: 3s; }
 }

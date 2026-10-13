@@ -132,6 +132,8 @@ All four use data already confirmed in "Confirmed from live data". Do not add ot
 - The per-place "fits" shares are close to even (about 40/60 to 60/40) for every place, so the "why this fits you" bars show which favourites contributed, but they do not rank places against each other. Do not present them as a strong signal.
 - Group Passport (A+B combined) vs A alone shares 10-14 of 15 in Berlin and Chennai, but only 3-10 in Tokyo and Toronto. Combining tastes visibly changes results only in cities where Qloo is taste-sensitive.
 
+- **Place photos are unreliable.** Many place image URLs (images.qloo.com/...-420x-outside.jpg) return 504 from Qloo's image server (checked in Tokyo: 8 of 8 failed; artist/brand photos ending in -420x-auto.jpg load fine). The UI therefore always renders a letter tile under the photo and hides the photo if it fails. Never depend on a place photo being there.
+
 ## Groq / LLM notes (confirmed Phase 3)
 
 - Provider: Groq (OpenAI-compatible, https://api.groq.com/openai/v1/chat/completions). Models available to our key include openai/gpt-oss-120b (default, set with LLM_MODEL), openai/gpt-oss-20b (backup), qwen/qwen3.8-27b.

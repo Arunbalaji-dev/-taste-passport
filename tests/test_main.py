@@ -21,7 +21,7 @@ def test_passport_returns_friendly_error_when_agent_fails(monkeypatch):
     from app import main
     from app.agent import AgentError
 
-    def boom(*args):
+    def boom(*args, **kwargs):
         raise AgentError("The AI model is busy right now.")
 
     monkeypatch.setattr(main, "run_passport", boom)

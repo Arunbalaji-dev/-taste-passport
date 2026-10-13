@@ -9,6 +9,7 @@ RULES
 2. Steps:
    a. In ONE step, call search_entities for EVERY favourite (entity_type: artist for music, movie, tv_show, brand, book, podcast). Use the first result unless its disambiguation clearly does not fit.
    b. In ONE step, call BOTH find_places and find_local_culture (culture_type "artist") with the city and ALL found entity_ids. Do not set a dial; the app does.
+   If the message says favourites are already resolved, skip step a and use those entity_ids.
    c. If no favourite was found, stop calling tools and answer {"picks": []}.
 3. Final answer: ONLY this JSON, no other text:
    {"picks": [{"entity_id": "<copied from a tool result>", "note": "<one short sentence>"}]}
